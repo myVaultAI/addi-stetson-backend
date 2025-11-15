@@ -3,7 +3,7 @@ Webhook endpoints for ElevenLabs integration
 """
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Query
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 import logging
 import hmac
@@ -25,7 +25,9 @@ from models.calls import (
     EscalationResponse,
     EscalationSummary,
     ConversationListItem,
-    ConversationsResponse
+    ConversationsResponse,
+    SpeakerType,
+    TranscriptEntry,
 )
 from services.elevenlabs_api_client import ElevenLabsAPIClient
 
@@ -42,6 +44,150 @@ ESCALATIONS_FILE = os.path.join(DATA_DIR, "escalations.json")
 
 # Agent constants
 ADDI_AGENT_ID = "agent_0301k84pwdr2ffprwkqaha0f178g"
+
+SPEAKER_AGENT_ALIASES = {"agent", "assistant", "system", "ai", "addisupport", "support"}
+SPEAKER_USER_ALIASES = {"user", "student", "caller", "prospect", "customer", "lead"}
+
+
+def _determine_speaker(entry: Dict[str, Any]) -> str:
+    """Normalize speaker labels across different ElevenLabs payload formats."""
+    raw_speaker = (
+        entry.get("speaker")
+        or entry.get("role")
+        or entry.get("source")
+        or entry.get("participant_role")
+        or ""
+    )
+
+    speaker = str(raw_speaker).lower().strip()
+
+    if speaker in SPEAKER_AGENT_ALIASES:
+        return SpeakerType.AGENT.value
+    if speaker in SPEAKER_USER_ALIASES:
+        return SpeakerType.USER.value
+
+    # Heuristics if explicit label absent
+    if entry.get("agent_metadata") or entry.get("llm_usage"):
+        return SpeakerType.AGENT.value
+
+    return SpeakerType.USER.value
+
+
+def _coerce_text_value(value: Any) -> Optional[str]:
+    """Coerce common ElevenLabs text payload shapes (str, dict, list) into plain text."""
+    if value is None:
+        return None
+    
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    
+    if isinstance(value, list):
+        parts = [
+            segment.strip()
+            for segment in value
+            if isinstance(segment, str) and segment.strip()
+        ]
+        combined = " ".join(parts).strip()
+        return combined or None
+    
+    if isinstance(value, dict):
+        # ElevenLabs sometimes nests text under these keys
+        for key in ("text", "value", "content", "message"):
+            nested = _coerce_text_value(value.get(key))
+            if nested:
+                return nested
+    
+    return None
+
+
+def _extract_transcript_text(entry: Dict[str, Any]) -> str:
+    """Prefer full text sources (original_message) before truncated ones (message/text)."""
+    candidate_fields = [
+        entry.get("original_message"),
+        entry.get("message"),
+        entry.get("text"),
+        entry.get("content"),
+        entry.get("display_text"),
+    ]
+    
+    for candidate in candidate_fields:
+        normalized = _coerce_text_value(candidate)
+        if normalized:
+            return normalized
+    
+    # Fallback: some payloads expose text under llm_response or similar shapes
+    llm_response = entry.get("llm_response")
+    if llm_response:
+        normalized = _coerce_text_value(llm_response if isinstance(llm_response, (str, list)) else llm_response.get("text"))
+        if normalized:
+            return normalized
+    
+    return ""
+
+
+def _normalize_transcript_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Ensure each transcript entry has consistent structure for UI + analytics."""
+    if not entry:
+        return None
+
+    speaker = _determine_speaker(entry)
+
+    text = _extract_transcript_text(entry)
+
+    # ElevenLabs often returns `timestamp` or `time_in_call_secs`
+    timestamp = entry.get("timestamp")
+    if timestamp is None:
+        timestamp = entry.get("time_in_call_secs")
+    if timestamp is None:
+        timestamp = 0.0
+
+    try:
+        timestamp = float(timestamp)
+    except (TypeError, ValueError):
+        timestamp = 0.0
+
+    metadata = {
+        "agent_metadata": entry.get("agent_metadata"),
+        "conversation_turn_metrics": entry.get("conversation_turn_metrics"),
+        "llm_usage": entry.get("llm_usage"),
+        "feedback": entry.get("feedback"),
+        "rag_retrieval_info": entry.get("rag_retrieval_info"),
+        "source_medium": entry.get("source_medium"),
+        "sentiment": entry.get("sentiment"),
+    }
+
+    # Remove None values to keep payload compact
+    metadata = {k: v for k, v in metadata.items() if v is not None}
+
+    normalized = {
+        "speaker": speaker,
+        "text": text.strip(),
+        "timestamp": timestamp,
+        "time_in_call_secs": entry.get("time_in_call_secs"),
+        "tool_calls": entry.get("tool_calls") or [],
+        "tool_results": entry.get("tool_results") or [],
+        "interrupted": entry.get("interrupted"),
+        "original_message": entry.get("original_message"),
+        "metadata": metadata or None,
+    }
+
+    return normalized
+
+
+def _normalize_transcript(entries: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Normalize a transcript list while preserving original order."""
+    if not entries:
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for entry in entries:
+        normalized_entry = _normalize_transcript_entry(entry)
+        if normalized_entry:
+            normalized.append(normalized_entry)
+
+    return normalized
+
 
 def ensure_data_dir():
     """Ensure data directory exists"""
@@ -75,6 +221,22 @@ def load_interactions():
                         continue
                     deduped[item_id] = item
                 deduped_list = list(deduped.values())
+                for item in deduped_list:
+                    transcript = item.get("transcript_json")
+                    normalized_transcript = _normalize_transcript(transcript)
+                    item["transcript_json"] = normalized_transcript
+
+                    # Ensure message/turn counts stay accurate
+                    total_turns = len(normalized_transcript)
+                    item["messages_count"] = item.get("messages_count") or total_turns
+                    item["turn_count"] = total_turns
+                    item["user_turns"] = len(
+                        [t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]
+                    )
+                    item["agent_turns"] = len(
+                        [t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]
+                    )
+
                 logger.info(f"Loaded {len(deduped_list)} interactions from file (deduped)")
                 return deduped_list
         except Exception as e:
@@ -85,6 +247,19 @@ def save_interactions(interactions):
     """Save interactions to file"""
     ensure_data_dir()
     try:
+        for item in interactions:
+            if "transcript_json" in item:
+                normalized = _normalize_transcript(item.get("transcript_json"))
+                item["transcript_json"] = normalized
+                total_turns = len(normalized)
+                item["messages_count"] = item.get("messages_count") or total_turns
+                item["turn_count"] = total_turns
+                item["user_turns"] = len(
+                    [t for t in normalized if t.get("speaker") == SpeakerType.USER.value]
+                )
+                item["agent_turns"] = len(
+                    [t for t in normalized if t.get("speaker") == SpeakerType.AGENT.value]
+                )
         with open(INTERACTIONS_FILE, 'w') as f:
             json.dump(interactions, f, indent=2, default=str)
         logger.info(f"Saved {len(interactions)} interactions to file")
@@ -431,13 +606,21 @@ async def get_interaction_detail(interaction_id: str):
             raise HTTPException(status_code=404, detail="Interaction not found")
         
         # Convert transcript back to TranscriptEntry objects
-        transcript_entries = []
+        transcript_entries: List[TranscriptEntry] = []
         for entry in interaction.get("transcript_json", []):
-            transcript_entries.append({
-                "speaker": entry["speaker"],
-                "text": entry["text"],
-                "timestamp": entry["timestamp"]
-            })
+            normalized_entry = _normalize_transcript_entry(entry) or {
+                "speaker": SpeakerType.AGENT.value,
+                "text": "",
+                "timestamp": 0.0,
+            }
+            try:
+                transcript_entries.append(TranscriptEntry(**normalized_entry))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to coerce transcript entry for %s: %s",
+                    interaction["id"],
+                    exc,
+                )
         
         extracted_data = interaction.get("extracted_data_json", {})
         
@@ -451,7 +634,7 @@ async def get_interaction_detail(interaction_id: str):
             outcome=interaction.get("outcome", "resolved"),
             timestamp=interaction["started_at"],
             transcript=transcript_entries,
-            summary=interaction["summary"]
+            summary=interaction.get("summary", "")
         )
         
     except HTTPException:
@@ -673,6 +856,7 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
     metadata = conv.get("metadata", {})
     analysis = conv.get("analysis", {})
     transcript = conv.get("transcript", [])
+    normalized_transcript = _normalize_transcript(transcript)
     
     conversation_id = conv.get("id") or conv.get("conversation_id")
     agent_id = conv.get("agent_id") or conv.get("agentId")
@@ -740,13 +924,13 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
     )
     
     # Count messages in transcript
-    messages_count = len(transcript) if transcript else 0
+    messages_count = len(normalized_transcript)
     
     # Get last message timestamp (for sorting/filtering)
     last_message_at = None
-    if transcript and len(transcript) > 0:
+    if normalized_transcript:
         try:
-            last_timestamp = transcript[-1].get("timestamp", 0)
+            last_timestamp = normalized_transcript[-1].get("timestamp", 0) or 0
             last_message_at = started_at + timedelta(seconds=last_timestamp)
         except Exception:
             last_message_at = started_at
@@ -840,10 +1024,12 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
     transcript_preview = summary[:100] + "..." if len(summary) > 100 else summary
     
     # If no summary, fallback to first user message
-    if not transcript_preview and transcript:
+    if not transcript_preview and normalized_transcript:
         user_messages = [
-            t.get("text", "") for t in transcript 
-            if t.get("speaker") == "user" and len(t.get("text", "")) > 20
+            t.get("text", "")
+            for t in normalized_transcript
+            if t.get("speaker") == SpeakerType.USER.value
+            and len(t.get("text", "")) > 20
         ]
         if user_messages:
             preview = user_messages[0]
@@ -854,7 +1040,7 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
         "agent_id": agent_id or "unknown",
         "started_at": started_at,
         "duration": duration,
-        "transcript_json": transcript,
+        "transcript_json": normalized_transcript,
         "summary": summary,
         "extracted_data_json": merged_extracted_data,
         "sentiment": sentiment,
@@ -867,9 +1053,13 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
         "topic": topic,  # ← NEW for Conversations page
         "transcript_preview": transcript_preview,  # ← NEW: Preview for dashboard (100 chars)
         "transcript_summary": summary,  # ← NEW: Full ElevenLabs summary
-        "turn_count": len(transcript) if transcript else 0,  # ← NEW: Total conversation turns
-        "user_turns": len([t for t in transcript if t.get("speaker") == "user"]) if transcript else 0,  # ← NEW
-        "agent_turns": len([t for t in transcript if t.get("speaker") == "agent"]) if transcript else 0,  # ← NEW
+        "turn_count": len(normalized_transcript),  # ← NEW: Total conversation turns
+        "user_turns": len(
+            [t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]
+        ),
+        "agent_turns": len(
+            [t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]
+        ),
         "created_at": datetime.utcnow(),
         "source": "sync",
         "synced_at": synced_at  # ← NEW for last sync indicator
@@ -1173,6 +1363,10 @@ async def get_conversations(
             if not user_email:
                 user_email = extracted.get("user_email") or extracted.get("student_email")
             
+            # Normalize transcript_json to ensure text field is populated
+            raw_transcript = i.get("transcript_json")
+            normalized_transcript = _normalize_transcript(raw_transcript) if raw_transcript else []
+            
             conv = ConversationListItem(
                 id=i["id"],
                 agent_id=i.get("agent_id", "unknown"),
@@ -1189,13 +1383,13 @@ async def get_conversations(
                 synced_at=i.get("synced_at"),
                 source=i.get("source", "sync"),
                 last_message_at=i.get("last_message_at"),
-                # NEW: Transcript fields
-                transcript_json=i.get("transcript_json"),
+                # NEW: Transcript fields - use normalized transcript
+                transcript_json=normalized_transcript,
                 transcript_summary=i.get("transcript_summary"),
                 transcript_preview=i.get("transcript_preview"),
-                turn_count=i.get("turn_count"),
-                user_turns=i.get("user_turns"),
-                agent_turns=i.get("agent_turns")
+                turn_count=i.get("turn_count") or len(normalized_transcript),
+                user_turns=i.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
+                agent_turns=i.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value])
             )
             conversations.append(conv)
         
@@ -1211,3 +1405,66 @@ async def get_conversations(
     except Exception as e:
         logger.error(f"Failed to get conversations: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get conversations: {str(e)}")
+
+
+@router.get("/dashboard/conversations/{conversation_id}", response_model=ConversationListItem)
+async def get_conversation_detail(conversation_id: str):
+    """
+    Get full conversation detail including transcript for the Conversations modal.
+    """
+    try:
+        interactions = load_interactions()
+        if not interactions:
+            raise HTTPException(status_code=404, detail="No conversations found")
+
+        match = next((i for i in interactions if i.get("id") == conversation_id), None)
+        if not match:
+            raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+
+        extracted = match.get("extracted_data_json", {})
+        
+        topic = (
+            match.get("topic")
+            or extracted.get("call_topic")
+            or extracted.get("topic")
+            or "General Inquiry"
+        )
+
+        user_name = match.get("user_name") or extracted.get("user_name") or extracted.get("student_name")
+        user_email = match.get("user_email") or extracted.get("user_email") or extracted.get("student_email")
+
+        # Normalize transcript_json to ensure text field is populated
+        raw_transcript = match.get("transcript_json")
+        normalized_transcript = _normalize_transcript(raw_transcript) if raw_transcript else []
+
+        conversation = ConversationListItem(
+            id=match["id"],
+            agent_id=match.get("agent_id", "unknown"),
+            started_at=match["started_at"],
+            duration=match.get("duration", 0),
+            messages_count=match.get("messages_count", 0),
+            evaluation_result=match.get("evaluation_result", "successful"),
+            outcome=match.get("outcome", "resolved"),
+            user_name=user_name,
+            user_email=user_email,
+            topic=topic,
+            sentiment=match.get("sentiment", "neutral"),
+            summary=match.get("summary"),
+            synced_at=match.get("synced_at"),
+            source=match.get("source", "sync"),
+            last_message_at=match.get("last_message_at"),
+            transcript_json=normalized_transcript,
+            transcript_summary=match.get("transcript_summary"),
+            transcript_preview=match.get("transcript_preview"),
+            turn_count=match.get("turn_count") or len(normalized_transcript),
+            user_turns=match.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
+            agent_turns=match.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value])
+        )
+
+        return conversation
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get conversation detail: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to load conversation detail")
