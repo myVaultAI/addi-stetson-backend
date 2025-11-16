@@ -122,7 +122,7 @@ class EscalationSummary(BaseModel):
     """Summary of escalation for dashboard display"""
     id: str
     student_name: str
-    student_email: str
+    student_email: Optional[str]
     student_phone: Optional[str]
     inquiry_topic: str
     best_time_to_call: Optional[str]
