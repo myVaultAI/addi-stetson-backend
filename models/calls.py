@@ -118,6 +118,19 @@ class EscalationResponse(BaseModel):
     message: str = Field(..., description="Human-readable confirmation message")
     estimated_response_time: str = Field(..., description="When student can expect follow-up")
 
+class EscalationNote(BaseModel):
+    """Note/comment on an escalation"""
+    id: str
+    escalation_id: str
+    author: str
+    text: str
+    created_at: datetime
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
 class EscalationSummary(BaseModel):
     """Summary of escalation for dashboard display"""
     id: str
@@ -128,14 +141,27 @@ class EscalationSummary(BaseModel):
     best_time_to_call: Optional[str]
     conversation_id: Optional[str]
     created_at: datetime
-    status: str  # 'pending', 'in_progress', 'resolved'
+    updated_at: Optional[datetime] = None
+    status: str  # 'pending', 'contacted', 'resolved'
     assigned_to: Optional[str]
     priority: str  # Derived: 'urgent' (>24h), 'high' (>12h), 'medium' (else)
+    notes: Optional[List[EscalationNote]] = []
 
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+
+class EscalationStatusUpdate(BaseModel):
+    """Request to update escalation status"""
+    status: str = Field(..., description="New status: pending, contacted, or resolved")
+    note: Optional[str] = Field(None, description="Optional note about the status change")
+    assigned_to: Optional[str] = Field(None, description="Who is handling this escalation")
+
+class EscalationNoteCreate(BaseModel):
+    """Request to add a note to an escalation"""
+    text: str = Field(..., min_length=1, description="Note text")
+    author: str = Field(default="Dashboard User", description="Note author")
 
 class ConversationListItem(BaseModel):
     """Conversation item for Conversations page list/table views"""

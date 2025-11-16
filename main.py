@@ -11,6 +11,7 @@ from routers.dashboard import router as dashboard_router
 from routers.rag import router as rag_router
 from routers.voice import router as voice_router
 from routers.webhooks import router as webhooks_router
+from routers.escalation_management import router as escalation_mgmt_router
 import uvicorn
 import os
 from datetime import datetime
@@ -48,6 +49,7 @@ app.include_router(dashboard_router)
 app.include_router(rag_router)
 app.include_router(voice_router)
 app.include_router(webhooks_router)
+app.include_router(escalation_mgmt_router)
 
 # Health check endpoint
 @app.get("/health")
