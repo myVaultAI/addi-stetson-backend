@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "ESC_20251028_085919_1",
+    "student_name": "Jason Torres",
+    "student_email": null,
+    "student_phone": "4072522589",
+    "inquiry_topic": "Admissions Appointment",
+    "best_time_to_call": "afternoon",
+    "conversation_id": "conv_1501k8nedj2vek3ta7zd3exy3s0n",
+    "created_at": "2025-10-28T08:59:19+00:00",
+    "status": "pending",
+    "assigned_to": null
+  },
+  {
+    "id": "ESC_20251027_222955_2",
+    "student_name": "Jason Torres",
+    "student_email": null,
+    "student_phone": "4072522589",
+    "inquiry_topic": "Admissions Appointment",
+    "best_time_to_call": "afternoon",
+    "conversation_id": "conv_3701k8mad37geb1882mf9n5x256d",
+    "created_at": "2025-10-27T22:29:55+00:00",
+    "status": "pending",
+    "assigned_to": null
+  },
+  {
+    "id": "ESC_20251026_110202_3",
+    "student_name": "Jason Torres",
+    "student_email": "info@allamericandesigns.com",
+    "student_phone": "4072522589",
+    "inquiry_topic": "Financial Aid",
+    "best_time_to_call": "afternoon",
+    "conversation_id": "conv_2801k8ggmv3jepf9k4x3905gb24t",
+    "created_at": "2025-10-26T11:02:02+00:00",
+    "status": "pending",
+    "assigned_to": null
+  },
+  {
+    "id": "ESC_20251031_195839_4",
+    "student_name": "Thor Torres",
+    "student_email": null,
+    "student_phone": null,
+    "inquiry_topic": "Financial Aid",
+    "best_time_to_call": null,
+    "conversation_id": "conv_7201k8ybb0t3f4dvtjwq2zhy4egx",
+    "created_at": "2025-10-31T19:58:39+00:00",
+    "status": "pending",
+    "assigned_to": null
+  },
+  {
+    "id": "ESC_20251108_171810_5",
+    "student_name": "Thor Torres",
+    "student_email": null,
+    "student_phone": "4072522589",
+    "inquiry_topic": "Admissions Appointment",
+    "best_time_to_call": "afternoon",
+    "conversation_id": "conv_8301k9jrrrpded399kn0h77ak1c9",
+    "created_at": "2025-11-08T17:18:10+00:00",
+    "status": "pending",
+    "assigned_to": null
+  },
+  {
+    "id": "ESC_20251106_231003_6",
+    "student_name": "Jason Torres",
+    "student_email": null,
+    "student_phone": "4072522589",
+    "inquiry_topic": "Admissions Appointment",
+    "best_time_to_call": null,
+    "conversation_id": "conv_5401k9e83mvwf3tb3sdvdeb0k5nk",
+    "created_at": "2025-11-06T23:10:03+00:00",
+    "status": "pending",
+    "assigned_to": null
+  }
+]
