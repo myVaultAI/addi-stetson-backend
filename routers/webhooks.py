@@ -769,11 +769,21 @@ async def get_escalations(
 
         # Convert to response format with priority calculation
         summaries = []
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
 
         for esc in paginated:
+            esc_created_at = esc["created_at"]
+            if isinstance(esc_created_at, datetime):
+                created_at_dt = esc_created_at
+            else:
+                created_at_dt = datetime.fromisoformat(str(esc_created_at).replace('Z', '+00:00'))
+
+            if created_at_dt.tzinfo is None:
+                created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+
             # Calculate priority based on age
-            age_hours = (now - esc["created_at"]).total_seconds() / 3600
+            age_hours = (now - created_at_dt).total_seconds() / 3600
 
             if age_hours > 24:
                 priority = "urgent"
@@ -790,7 +800,7 @@ async def get_escalations(
                 inquiry_topic=esc["inquiry_topic"],
                 best_time_to_call=esc.get("best_time_to_call"),
                 conversation_id=esc.get("conversation_id"),
-                created_at=esc["created_at"],
+                created_at=created_at_dt,
                 status=esc["status"],
                 assigned_to=esc.get("assigned_to"),
                 priority=priority
