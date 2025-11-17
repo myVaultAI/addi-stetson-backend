@@ -123,7 +123,8 @@
       "student_email": "jasonwtorres@gmail.com",
       "user_email": "jasonwtorres@gmail.com",
       "student_phone": "407-252-2589",
-      "best_time_to_call": "afternoon"
+      "best_time_to_call": "afternoon",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -132,7 +133,7 @@
     "last_message_at": "2025-10-28 08:59:19",
     "user_name": "Jason Torres",
     "user_email": "jasonwtorres@gmail.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about the marine biology program and then requested to schedule an appointment wit...",
     "transcript_summary": "The user inquired about the marine biology program and then requested to schedule an appointment with an admissions representative. The agent collected the user's name, email, and phone number, and preferred time for contact. The agent confirmed that they have all the information.\n",
     "turn_count": 10,
@@ -292,7 +293,8 @@
       "student_email": "myname@gmail.com",
       "user_email": "myname@gmail.com",
       "student_phone": "407-252-2589",
-      "best_time_to_call": "afternoon"
+      "best_time_to_call": "afternoon",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -301,7 +303,7 @@
     "last_message_at": "2025-10-27 22:29:55",
     "user_name": "Jason Torres",
     "user_email": "myname@gmail.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about the next registration deadline for Stetson University and then requested to ...",
     "transcript_summary": "The user inquired about the next registration deadline for Stetson University and then requested to schedule an appointment with an admissions representative. The user provided their name, email, and phone number. The agent confirmed it would connect the user with an admissions counselor who will call in the afternoon.\n",
     "turn_count": 9,
@@ -457,7 +459,8 @@
       "student_email": "info@allamericandesigns.com",
       "user_email": "info@allamericandesigns.com",
       "student_phone": "407-252-2589",
-      "best_time_to_call": "afternoon"
+      "best_time_to_call": "afternoon",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -466,7 +469,7 @@
     "last_message_at": "2025-10-26 11:02:02",
     "user_name": "Jason Torres",
     "user_email": "info@allamericandesigns.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about Stetson University's marine biology program. After a brief overview, the use...",
     "transcript_summary": "The user inquired about Stetson University's marine biology program. After a brief overview, the user requested an appointment with an admissions representative for financial aid. The agent collected the user's name (Jason Torres), email (info@allamericandesigns.com), and phone number (407-252-2589) and confirmed that an admissions counselor would contact him in the afternoon within 24 hours.\n",
     "turn_count": 12,
@@ -607,7 +610,8 @@
     "summary": "The user inquired about law degree programs and admission dates at Stetson University. The agent clarified Stetson offers pre-law programs but not law degrees. The user then requested an appointment with a financial aid representative, providing their name and email. The agent confirmed the information and stated a representative would contact the user within 24 hours to schedule a meeting.\n",
     "extracted_data_json": {
       "student_email": "itsthortorres@gmail.com",
-      "user_email": "itsthortorres@gmail.com"
+      "user_email": "itsthortorres@gmail.com",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -616,7 +620,7 @@
     "last_message_at": "2025-10-31 19:58:39",
     "user_name": null,
     "user_email": "itsthortorres@gmail.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about law degree programs and admission dates at Stetson University. The agent cla...",
     "transcript_summary": "The user inquired about law degree programs and admission dates at Stetson University. The agent clarified Stetson offers pre-law programs but not law degrees. The user then requested an appointment with a financial aid representative, providing their name and email. The agent confirmed the information and stated a representative would contact the user within 24 hours to schedule a meeting.\n",
     "turn_count": 11,
@@ -741,7 +745,7 @@
     "last_message_at": "2025-11-03 13:18:10",
     "user_name": null,
     "user_email": null,
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about law degrees at Stetson University and the duration of their pre-law programs...",
     "transcript_summary": "The user inquired about law degrees at Stetson University and the duration of their pre-law programs. The agent confirmed the availability of pre-law programs and their long-standing presence. The user then requested an appointment with an admissions representative but ultimately found the information online and declined the appointment.\n",
     "turn_count": 9,
@@ -822,7 +826,7 @@
     "last_message_at": "2025-11-08 17:35:06",
     "user_name": null,
     "user_email": null,
-    "topic": "General Inquiry",
+    "topic": "Marine Biology",
     "transcript_preview": "The user inquired about marine biology degrees. The agent confirmed that Stetson University offers s...",
     "transcript_summary": "The user inquired about marine biology degrees. The agent confirmed that Stetson University offers such a program, highlighting its access to the Atlantic Ocean and state-of-the-art laboratories. The user was satisfied with the information provided.\n",
     "turn_count": 5,
@@ -903,7 +907,7 @@
     "last_message_at": "2025-11-08 17:20:46",
     "user_name": null,
     "user_email": null,
-    "topic": "General Inquiry",
+    "topic": "Financial Aid",
     "transcript_preview": "The user inquired if they were communicating with Stetson University. The AI, Addi, confirmed and of...",
     "transcript_summary": "The user inquired if they were communicating with Stetson University. The AI, Addi, confirmed and offered assistance with admissions-related information. The user thanked Addi.\n",
     "turn_count": 5,
@@ -1013,7 +1017,8 @@
       "student_email": "yesmy@gmail.com",
       "user_email": "yesmy@gmail.com",
       "student_phone": "407-252-2589",
-      "best_time_to_call": "afternoon"
+      "best_time_to_call": "afternoon",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -1022,7 +1027,7 @@
     "last_message_at": "2025-11-08 17:19:25",
     "user_name": null,
     "user_email": "yesmy@gmail.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about veterinary programs. The agent confirmed the availability of pre-veterinary ...",
     "transcript_summary": "The user inquired about veterinary programs. The agent confirmed the availability of pre-veterinary programs and offered to connect the user with an admissions counselor. The user, Thor Torres, provided their contact information (email: Thor Torres at gmail.com, phone: 407-252-2589) and requested an afternoon call. The agent confirmed that an admissions counselor would contact them within 24 hours.\n",
     "turn_count": 8,
@@ -1144,7 +1149,8 @@
       "user_name": "Jason Torres",
       "student_email": "myname@gmail.com",
       "user_email": "myname@gmail.com",
-      "student_phone": "407-252-2589"
+      "student_phone": "407-252-2589",
+      "inquiry_topic": "Admissions Appointment"
     },
     "sentiment": "neutral",
     "outcome": "resolved",
@@ -1153,7 +1159,7 @@
     "last_message_at": "2025-11-06 23:11:07",
     "user_name": "Jason Torres",
     "user_email": "myname@gmail.com",
-    "topic": "General Inquiry",
+    "topic": "Admissions Appointment",
     "transcript_preview": "The user inquired about the lowest accepted SAT score at Stetson University. The agent explained tha...",
     "transcript_summary": "The user inquired about the lowest accepted SAT score at Stetson University. The agent explained that Stetson is test-optional and there's no minimum score. The user then requested to speak with an admissions representative and provided their contact information, but the agent seems to be stuck in a loop asking for the same information.\n",
     "turn_count": 9,
