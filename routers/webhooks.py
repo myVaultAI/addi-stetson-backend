@@ -9,7 +9,7 @@ import logging
 import hmac
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -293,11 +293,192 @@ def save_escalations(escalations):
     """Save escalations to file"""
     ensure_data_dir()
     try:
+        # Convert datetime objects to ISO strings for JSON serialization
+        escalations_serializable = []
+        for esc in escalations:
+            esc_copy = esc.copy()
+            if isinstance(esc_copy.get("created_at"), datetime):
+                esc_copy["created_at"] = esc_copy["created_at"].isoformat()
+            if isinstance(esc_copy.get("updated_at"), datetime):
+                esc_copy["updated_at"] = esc_copy["updated_at"].isoformat()
+            escalations_serializable.append(esc_copy)
+        
         with open(ESCALATIONS_FILE, 'w') as f:
-            json.dump(escalations, f, indent=2, default=str)
+            json.dump(escalations_serializable, f, indent=2, default=str)
         logger.info(f"Saved {len(escalations)} escalations to file")
     except Exception as e:
         logger.error(f"Failed to save escalations: {e}")
+
+def has_escalation_tool_call(conversation: Dict[str, Any]) -> bool:
+    """Check if conversation has escalate_to_human tool call"""
+    transcript = conversation.get("transcript_json", [])
+    
+    for entry in transcript:
+        tool_calls = entry.get("tool_calls", [])
+        if tool_calls:
+            for tool in tool_calls:
+                if isinstance(tool, dict):
+                    tool_name = tool.get("tool_name") or tool.get("name", "")
+                    if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        return True
+                elif isinstance(tool, str):
+                    if "escalate_to_human" in tool.lower() or "escalate" in tool.lower():
+                        return True
+    return False
+
+def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract escalation data from escalate_to_human tool call parameters"""
+    transcript = conversation.get("transcript_json", [])
+    conv_id = conversation.get("id")
+    
+    for entry in transcript:
+        tool_calls = entry.get("tool_calls", [])
+        if tool_calls:
+            for tool in tool_calls:
+                if isinstance(tool, dict):
+                    tool_name = tool.get("tool_name") or tool.get("name", "")
+                    if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        # Extract params from tool call
+                        params = tool.get("params_as_json") or tool.get("params") or {}
+                        
+                        # If params_as_json is a string, parse it
+                        if isinstance(params, str):
+                            try:
+                                params = json.loads(params)
+                            except:
+                                params = {}
+                        
+                        if isinstance(params, dict):
+                            # Use tool call params, fallback to conversation data
+                            escalation_data = {
+                                "student_name": (
+                                    params.get("student_name") or 
+                                    params.get("studentName") or
+                                    conversation.get("user_name") or
+                                    conversation.get("extracted_data_json", {}).get("user_name")
+                                ),
+                                "student_email": (
+                                    params.get("student_email") or 
+                                    params.get("studentEmail") or
+                                    conversation.get("user_email") or
+                                    conversation.get("extracted_data_json", {}).get("user_email")
+                                ),
+                                "student_phone": (
+                                    params.get("student_phone") or 
+                                    params.get("studentPhone") or
+                                    None
+                                ),
+                                "inquiry_topic": (
+                                    params.get("inquiry_topic") or 
+                                    params.get("inquiryTopic") or
+                                    conversation.get("topic") or
+                                    conversation.get("extracted_data_json", {}).get("call_topic") or
+                                    "General Inquiry"
+                                ),
+                                "best_time_to_call": (
+                                    params.get("best_time_to_call") or 
+                                    params.get("bestTimeToCall") or
+                                    None
+                                ),
+                                "conversation_id": conv_id,
+                                "created_at": conversation.get("started_at") or datetime.now(timezone.utc),
+                                "status": "pending",
+                                "assigned_to": None
+                            }
+                            
+                            # Only create if we have at least name or email
+                            if escalation_data["student_name"] or escalation_data["student_email"]:
+                                return escalation_data
+        
+        # Also check tool_results for escalation confirmation
+        tool_results = entry.get("tool_results", [])
+        if tool_results:
+            for result in tool_results:
+                if isinstance(result, dict):
+                    result_value = result.get("result_value")
+                    if result_value and isinstance(result_value, str):
+                        try:
+                            result_data = json.loads(result_value)
+                            if "escalation_id" in result_data or "status" in result_data:
+                                # Tool call was successful, use conversation data
+                                return {
+                                    "student_name": (
+                                        conversation.get("user_name") or
+                                        conversation.get("extracted_data_json", {}).get("user_name")
+                                    ),
+                                    "student_email": (
+                                        conversation.get("user_email") or
+                                        conversation.get("extracted_data_json", {}).get("user_email")
+                                    ),
+                                    "student_phone": None,
+                                    "inquiry_topic": (
+                                        conversation.get("topic") or
+                                        conversation.get("extracted_data_json", {}).get("call_topic") or
+                                        "General Inquiry"
+                                    ),
+                                    "best_time_to_call": None,
+                                    "conversation_id": conv_id,
+                                    "created_at": conversation.get("started_at") or datetime.now(timezone.utc),
+                                    "status": "pending",
+                                    "assigned_to": None
+                                }
+                        except:
+                            pass
+    
+    return None
+
+async def auto_extract_escalations(conversations_dict: Dict[str, Any], synced: int, updated: int) -> int:
+    """
+    Automatically extract escalations from conversations with escalate_to_human tool calls.
+    Only processes newly synced or updated conversations to avoid duplicates.
+    Returns count of escalations created.
+    """
+    try:
+        # Load existing escalations
+        existing_escalations = load_escalations()
+        existing_conv_ids = {esc.get("conversation_id") for esc in existing_escalations if esc.get("conversation_id")}
+        
+        escalations_created = 0
+        
+        # Check each conversation for escalation tool calls
+        for conv_id, conversation in conversations_dict.items():
+            # Skip if already has escalation (unless it was just updated)
+            if conv_id in existing_conv_ids:
+                continue
+            
+            # Check if conversation has escalate_to_human tool call
+            if has_escalation_tool_call(conversation):
+                logger.info(f"Found escalate_to_human tool call in conversation {conv_id}")
+                
+                # Extract escalation data
+                escalation_data = extract_escalation_from_tool_call(conversation)
+                
+                if escalation_data and (escalation_data.get("student_name") or escalation_data.get("student_email")):
+                    # Generate escalation ID
+                    escalation_id = f"ESC_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{len(existing_escalations) + escalations_created + 1}"
+                    escalation_data["id"] = escalation_id
+                    
+                    # Ensure created_at is timezone-aware
+                    if isinstance(escalation_data["created_at"], datetime):
+                        if escalation_data["created_at"].tzinfo is None:
+                            escalation_data["created_at"] = escalation_data["created_at"].replace(tzinfo=timezone.utc)
+                    
+                    existing_escalations.append(escalation_data)
+                    escalations_created += 1
+                    logger.info(f"Auto-created escalation {escalation_id} from conversation {conv_id}")
+                else:
+                    logger.warning(f"Could not extract escalation data from conversation {conv_id}")
+        
+        # Save if we created any new escalations
+        if escalations_created > 0:
+            save_escalations(existing_escalations)
+            logger.info(f"Auto-extracted {escalations_created} escalations from conversations")
+        
+        return escalations_created
+        
+    except Exception as e:
+        logger.error(f"Failed to auto-extract escalations: {str(e)}")
+        return 0
 
 # API Key validation
 async def verify_api_key(authorization: str = Header(None)):
@@ -1209,13 +1390,17 @@ async def sync_from_elevenlabs(
         merged_list = list(by_id.values())
         save_interactions(merged_list)
         
-        logger.info(f"Sync complete: synced={synced}, updated={updated}, skipped={skipped}")
+        # Automatically extract escalations from tool calls in new/updated conversations
+        escalations_created = await auto_extract_escalations(by_id, synced, updated)
+        
+        logger.info(f"Sync complete: synced={synced}, updated={updated}, skipped={skipped}, escalations_created={escalations_created}")
 
         return {
             "status": "success",
             "synced": synced,
             "updated": updated,
             "skipped": skipped,
+            "escalations_created": escalations_created,
             "total_after": len(merged_list),
             "mode": "incremental" if incremental else "full",
             "message": "No new conversations to sync" if synced == 0 and updated == 0 else None
