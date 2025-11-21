@@ -749,7 +749,7 @@ async def get_interactions(
                 id=interaction["id"],
                 student_name=extracted_data.get("user_name"),
                 student_email=extracted_data.get("user_email"),
-                topic=extracted_data.get("call_topic", "General Inquiry"),
+                topic=extracted_data.get("inquiry_topic") or interaction.get("topic") or "General Inquiry",
                 duration_seconds=interaction.get("duration", 0),
                 sentiment=interaction.get("sentiment", "neutral"),
                 outcome=interaction.get("outcome", "resolved"),
@@ -931,8 +931,6 @@ async def get_escalations(
     Automatically calculates priority based on age.
     """
     try:
-        from datetime import datetime, timedelta
-
         # Filter by status if provided
         filtered_escalations = escalations_db
         if status:
@@ -953,7 +951,6 @@ async def get_escalations(
 
         # Convert to response format with priority calculation
         summaries = []
-        from datetime import timezone
         now = datetime.now(timezone.utc)
 
         for esc in paginated:
