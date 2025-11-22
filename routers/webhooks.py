@@ -134,6 +134,10 @@ def _normalize_transcript_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any
     if not entry:
         return None
 
+    # DEBUG: Log what we're actually receiving
+    entry_keys = list(entry.keys())
+    logger.debug(f"[NORMALIZE ENTRY] Entry keys: {entry_keys}")
+
     speaker = _determine_speaker(entry)
 
     text = _extract_transcript_text(entry)
@@ -163,12 +167,61 @@ def _normalize_transcript_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any
     # Remove None values to keep payload compact
     metadata = {k: v for k, v in metadata.items() if v is not None}
 
+    # DEBUG: Check for tool calls in multiple possible locations
+    tool_calls = None
+
+    # Try all possible field names
+    possible_tool_fields = [
+        "tool_calls",
+        "tool_call",
+        "tools",
+        "function_calls",
+        "server_tool_calls",
+        "agent_tool_calls",
+        "tool_invocations",
+        "tool_usage",
+        "server_tools",
+        "function_tools",
+        "llm_tool_calls",
+        "agent_tools"
+    ]
+
+    for field in possible_tool_fields:
+        if field in entry and entry[field]:
+            tool_calls = entry[field]
+            logger.info(f"[NORMALIZE ENTRY] ✅ Found tool calls in field '{field}': {tool_calls}")
+            break
+
+    # If still None, check nested locations
+    if not tool_calls:
+        # Check in metadata (agent_metadata specifically)
+        agent_meta = entry.get("agent_metadata", {})
+        if isinstance(agent_meta, dict):
+            for field in possible_tool_fields:
+                if field in agent_meta and agent_meta[field]:
+                    tool_calls = agent_meta[field]
+                    logger.info(f"[NORMALIZE ENTRY] ✅ Found tool calls in agent_metadata.{field}: {tool_calls}")
+                    break
+
+    # Normalize tool_calls to list
+    if tool_calls:
+        if isinstance(tool_calls, str):
+            try:
+                tool_calls = json.loads(tool_calls)
+            except:
+                tool_calls = [tool_calls]
+        elif not isinstance(tool_calls, list):
+            tool_calls = [tool_calls]
+    else:
+        tool_calls = []
+        logger.debug(f"[NORMALIZE ENTRY] ⚠️ No tool calls found in entry")
+
     normalized = {
         "speaker": speaker,
         "text": text.strip(),
         "timestamp": timestamp,
         "time_in_call_secs": entry.get("time_in_call_secs"),
-        "tool_calls": entry.get("tool_calls") or [],
+        "tool_calls": tool_calls,
         "tool_results": entry.get("tool_results") or [],
         "interrupted": entry.get("interrupted"),
         "original_message": entry.get("original_message"),
@@ -1043,10 +1096,50 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
     ENHANCED with all fields needed for Conversations page.
     EXCLUDES: credits, llm_cost per user requirements.
     """
+    conv_id = conv.get("id", "unknown")
+
+    # DEBUG: Log raw conversation structure
+    logger.info(f"[NORMALIZE] Processing conversation: {conv_id}")
+    logger.debug(f"[NORMALIZE] Raw conversation keys: {list(conv.keys())}")
+
     # Get metadata and analysis sections
     metadata = conv.get("metadata", {})
     analysis = conv.get("analysis", {})
     transcript = conv.get("transcript", [])
+
+    # DEBUG: Check for tool calls in various locations BEFORE normalization
+    if transcript:
+        logger.debug(f"[NORMALIZE] Transcript type: {type(transcript)}")
+        if isinstance(transcript, list) and len(transcript) > 0:
+            first_entry = transcript[0]
+            logger.debug(f"[NORMALIZE] First transcript entry keys: {list(first_entry.keys())}")
+
+            # Check all possible tool call field names
+            tool_call_fields = [
+                "tool_calls", "tool_call", "tools", "function_calls",
+                "server_tool_calls", "agent_tool_calls", "tool_invocations",
+                "tool_usage", "server_tools", "function_tools"
+            ]
+
+            for field in tool_call_fields:
+                if field in first_entry:
+                    logger.info(f"[NORMALIZE] ✅ Found '{field}' in transcript entry: {first_entry[field]}")
+
+    # Check conversation-level tool calls
+    tool_call_locations = [
+        ("metadata", metadata),
+        ("analysis", analysis),
+        ("agent_metadata", conv.get("agent_metadata", {})),
+        ("conversation_metadata", conv.get("conversation_metadata", {})),
+        ("root", conv)  # Check root level
+    ]
+
+    for location_name, location_data in tool_call_locations:
+        if isinstance(location_data, dict):
+            for key in location_data.keys():
+                if "tool" in key.lower() or "function" in key.lower():
+                    logger.info(f"[NORMALIZE] ✅ Found potential tool field '{key}' in {location_name}: {location_data[key]}")
+
     normalized_transcript = _normalize_transcript(transcript)
     
     conversation_id = conv.get("id") or conv.get("conversation_id")

@@ -66,7 +66,7 @@ class ElevenLabsAPIClient:
     async def get_conversation_details(self, conversation_id: str) -> Dict:
         """Get full details for a specific conversation"""
         logger.info(f"Fetching details for conversation: {conversation_id}")
-        
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 response = await client.get(
@@ -75,10 +75,30 @@ class ElevenLabsAPIClient:
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
+                # DEBUG: Save raw response for investigation
+                import json
+                import os
+                debug_dir = "/tmp/elevenlabs_debug"
+                os.makedirs(debug_dir, exist_ok=True)
+
+                debug_file = f"{debug_dir}/conv_{conversation_id}_raw.json"
+                with open(debug_file, 'w') as f:
+                    json.dump(data, f, indent=2, default=str)
+
+                logger.info(f"[DEBUG] Saved raw response to: {debug_file}")
+
+                # Also log structure summary
+                logger.info(f"[DEBUG] Response structure:")
+                logger.info(f"  - Top-level keys: {list(data.keys())}")
+                if "transcript" in data:
+                    logger.info(f"  - Transcript type: {type(data['transcript'])}")
+                    if isinstance(data["transcript"], list) and len(data["transcript"]) > 0:
+                        logger.info(f"  - First entry keys: {list(data['transcript'][0].keys())}")
+
                 logger.info(f"Successfully fetched details for {conversation_id}")
                 return data
-                
+
             except httpx.HTTPStatusError as e:
                 logger.error(f"HTTP error fetching conversation {conversation_id}: {e.response.status_code} - {e.response.text}")
                 raise
