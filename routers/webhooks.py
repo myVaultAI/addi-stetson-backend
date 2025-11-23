@@ -383,7 +383,9 @@ def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[
     """Extract escalation data from escalate_to_human tool call parameters"""
     transcript = conversation.get("transcript_json", [])
     conv_id = conversation.get("id")
-    
+
+    logger.debug(f"[EXTRACT] Processing conversation {conv_id}")
+
     for entry in transcript:
         tool_calls = entry.get("tool_calls", [])
         if tool_calls:
@@ -391,45 +393,50 @@ def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[
                 if isinstance(tool, dict):
                     tool_name = tool.get("tool_name") or tool.get("name", "")
                     if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        logger.info(f"[EXTRACT] Found escalate_to_human tool call in {conv_id}")
+
                         # Extract params from tool call
                         params = tool.get("params_as_json") or tool.get("params") or {}
-                        
+                        logger.debug(f"[EXTRACT] Raw params type: {type(params)}, value: {params}")
+
                         # If params_as_json is a string, parse it
                         if isinstance(params, str):
                             try:
                                 params = json.loads(params)
-                            except:
+                                logger.debug(f"[EXTRACT] Parsed params: {params}")
+                            except Exception as e:
+                                logger.warning(f"[EXTRACT] Failed to parse params_as_json: {e}")
                                 params = {}
-                        
+
                         if isinstance(params, dict):
                             # Use tool call params, fallback to conversation data
                             escalation_data = {
                                 "student_name": (
-                                    params.get("student_name") or 
+                                    params.get("student_name") or
                                     params.get("studentName") or
                                     conversation.get("user_name") or
                                     conversation.get("extracted_data_json", {}).get("user_name")
                                 ),
                                 "student_email": (
-                                    params.get("student_email") or 
+                                    params.get("student_email") or
                                     params.get("studentEmail") or
                                     conversation.get("user_email") or
                                     conversation.get("extracted_data_json", {}).get("user_email")
                                 ),
                                 "student_phone": (
-                                    params.get("student_phone") or 
+                                    params.get("student_phone") or
                                     params.get("studentPhone") or
                                     None
                                 ),
                                 "inquiry_topic": (
-                                    params.get("inquiry_topic") or 
+                                    params.get("inquiry_topic") or
                                     params.get("inquiryTopic") or
                                     conversation.get("topic") or
                                     conversation.get("extracted_data_json", {}).get("call_topic") or
                                     "General Inquiry"
                                 ),
                                 "best_time_to_call": (
-                                    params.get("best_time_to_call") or 
+                                    params.get("best_time_to_call") or
                                     params.get("bestTimeToCall") or
                                     None
                                 ),
@@ -438,10 +445,15 @@ def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[
                                 "status": "pending",
                                 "assigned_to": None
                             }
-                            
+
+                            logger.info(f"[EXTRACT] Built escalation_data: name={escalation_data.get('student_name')}, email={escalation_data.get('student_email')}, topic={escalation_data.get('inquiry_topic')}")
+
                             # Only create if we have at least name or email
                             if escalation_data["student_name"] or escalation_data["student_email"]:
+                                logger.info(f"[EXTRACT] ✅ Returning valid escalation data for {conv_id}")
                                 return escalation_data
+                            else:
+                                logger.warning(f"[EXTRACT] ⚠️ No student_name or student_email found, skipping {conv_id}")
         
         # Also check tool_results for escalation confirmation
         tool_results = entry.get("tool_results", [])
@@ -487,40 +499,47 @@ async def auto_extract_escalations(conversations_dict: Dict[str, Any], synced: i
     Returns count of escalations created.
     """
     try:
+        logger.info(f"[AUTO-EXTRACT] Starting auto-extraction for {len(conversations_dict)} conversations")
+
         # Load existing escalations
         existing_escalations = load_escalations()
         existing_conv_ids = {esc.get("conversation_id") for esc in existing_escalations if esc.get("conversation_id")}
-        
+
+        logger.info(f"[AUTO-EXTRACT] Found {len(existing_conv_ids)} existing escalations: {existing_conv_ids}")
+
         escalations_created = 0
-        
+
         # Check each conversation for escalation tool calls
         for conv_id, conversation in conversations_dict.items():
             # Skip if already has escalation (unless it was just updated)
             if conv_id in existing_conv_ids:
+                logger.debug(f"[AUTO-EXTRACT] Skipping {conv_id} - already has escalation")
                 continue
-            
+
             # Check if conversation has escalate_to_human tool call
             if has_escalation_tool_call(conversation):
-                logger.info(f"Found escalate_to_human tool call in conversation {conv_id}")
-                
+                logger.info(f"[AUTO-EXTRACT] Found escalate_to_human tool call in conversation {conv_id}")
+
                 # Extract escalation data
                 escalation_data = extract_escalation_from_tool_call(conversation)
-                
+
+                logger.debug(f"[AUTO-EXTRACT] Extraction result for {conv_id}: {escalation_data}")
+
                 if escalation_data and (escalation_data.get("student_name") or escalation_data.get("student_email")):
                     # Generate escalation ID
                     escalation_id = f"ESC_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{len(existing_escalations) + escalations_created + 1}"
                     escalation_data["id"] = escalation_id
-                    
+
                     # Ensure created_at is timezone-aware
                     if isinstance(escalation_data["created_at"], datetime):
                         if escalation_data["created_at"].tzinfo is None:
                             escalation_data["created_at"] = escalation_data["created_at"].replace(tzinfo=timezone.utc)
-                    
+
                     existing_escalations.append(escalation_data)
                     escalations_created += 1
-                    logger.info(f"Auto-created escalation {escalation_id} from conversation {conv_id}")
+                    logger.info(f"[AUTO-EXTRACT] ✅ Auto-created escalation {escalation_id} from conversation {conv_id}")
                 else:
-                    logger.warning(f"Could not extract escalation data from conversation {conv_id}")
+                    logger.warning(f"[AUTO-EXTRACT] ⚠️ Could not extract escalation data from conversation {conv_id} - escalation_data={escalation_data}")
         
         # Save if we created any new escalations
         if escalations_created > 0:
