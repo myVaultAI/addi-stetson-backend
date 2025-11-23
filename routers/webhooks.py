@@ -884,7 +884,7 @@ async def get_interaction_detail(interaction_id: str):
             id=interaction["id"],
             student_name=extracted_data.get("user_name"),
             student_email=extracted_data.get("user_email"),
-            topic=extracted_data.get("call_topic", "General Inquiry"),
+            topic=extracted_data.get("inquiry_topic") or extracted_data.get("call_topic") or interaction.get("topic") or "General Inquiry",
             duration_seconds=interaction["duration"],
             sentiment=interaction.get("sentiment", "neutral"),
             outcome=interaction.get("outcome", "resolved"),
@@ -1318,8 +1318,9 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
     
     # Get topic from extracted data
     topic = (
-        merged_extracted_data.get("call_topic") or 
-        merged_extracted_data.get("topic") or 
+        merged_extracted_data.get("inquiry_topic") or
+        merged_extracted_data.get("call_topic") or
+        merged_extracted_data.get("topic") or
         "General Inquiry"
     )
     
