@@ -1776,3 +1776,40 @@ async def get_conversation_detail(conversation_id: str):
     except Exception as e:
         logger.error(f"Failed to get conversation detail: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to load conversation detail")
+
+
+@router.post("/dashboard/admin/clear-database")
+async def clear_database_and_resync(days: int = 365, agent_id: str = ADDI_AGENT_ID):
+    """
+    ADMIN ENDPOINT: Clear database files and trigger fresh sync
+    WARNING: This deletes all interactions and escalations data
+    """
+    try:
+        logger.warning("🚨 CLEARING DATABASE - Admin endpoint called")
+
+        # Delete interactions file
+        if os.path.exists(INTERACTIONS_FILE):
+            os.remove(INTERACTIONS_FILE)
+            logger.info(f"✅ Deleted {INTERACTIONS_FILE}")
+
+        # Delete escalations file
+        if os.path.exists(ESCALATIONS_FILE):
+            os.remove(ESCALATIONS_FILE)
+            logger.info(f"✅ Deleted {ESCALATIONS_FILE}")
+
+        logger.info("🔄 Triggering fresh sync from ElevenLabs...")
+
+        # Trigger full sync
+        sync_result = await sync_from_elevenlabs(days=days, agent_id=agent_id, incremental=False)
+
+        logger.info(f"✅ Fresh sync complete: {sync_result}")
+
+        return {
+            "status": "success",
+            "message": "Database cleared and fresh sync completed",
+            "sync_result": sync_result
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to clear database: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear database: {str(e)}")
