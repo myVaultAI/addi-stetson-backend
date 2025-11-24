@@ -33,6 +33,7 @@ from models.calls import (
     TranscriptEntry,
 )
 from services.elevenlabs_api_client import ElevenLabsAPIClient
+from services.topic_analyzer import get_topic_analyzer
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1813,3 +1814,73 @@ async def clear_database_and_resync(days: int = 365, agent_id: str = ADDI_AGENT_
     except Exception as e:
         logger.error(f"Failed to clear database: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to clear database: {str(e)}")
+
+
+@router.post("/dashboard/admin/analyze-topics")
+async def analyze_conversation_topics():
+    """
+    ADMIN ENDPOINT: Analyze all conversations using Gemini AI and update topics
+    Uses Google Gemini 2.0 Flash to intelligently categorize conversations
+    """
+    try:
+        logger.info("🤖 Starting AI topic analysis for all conversations")
+
+        # Get topic analyzer
+        analyzer = get_topic_analyzer()
+
+        if not analyzer.ai_available:
+            raise HTTPException(
+                status_code=503,
+                detail="Gemini AI not configured. Set GOOGLE_GEMINI_API_KEY environment variable"
+            )
+
+        # Load all conversations
+        conversations = load_interactions()
+        logger.info(f"Loaded {len(conversations)} conversations for analysis")
+
+        analyzed = 0
+        updated = 0
+        failed = 0
+
+        for conversation in conversations:
+            try:
+                transcript = conversation.get("transcript_json", [])
+                if not transcript or len(transcript) < 2:
+                    logger.debug(f"Skipping {conversation.get('id')} - insufficient transcript")
+                    continue
+
+                # Analyze topic with Gemini AI
+                new_topic = analyzer.analyze_conversation(transcript)
+
+                # Update if topic changed
+                old_topic = conversation.get("topic", "General Inquiry")
+                if new_topic != old_topic:
+                    conversation["topic"] = new_topic
+                    updated += 1
+                    logger.info(f"Updated {conversation.get('id')}: '{old_topic}' → '{new_topic}'")
+
+                analyzed += 1
+
+            except Exception as e:
+                logger.error(f"Failed to analyze {conversation.get('id')}: {str(e)}")
+                failed += 1
+                continue
+
+        # Save updated conversations
+        if updated > 0:
+            save_interactions(conversations)
+            logger.info(f"✅ Saved {updated} updated topics to database")
+
+        return {
+            "status": "success",
+            "analyzed": analyzed,
+            "updated": updated,
+            "failed": failed,
+            "message": f"Analyzed {analyzed} conversations, updated {updated} topics"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to analyze topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze topics: {str(e)}")
