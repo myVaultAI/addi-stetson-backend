@@ -1817,13 +1817,17 @@ async def clear_database_and_resync(days: int = 365, agent_id: str = ADDI_AGENT_
 
 
 @router.post("/dashboard/admin/analyze-topics")
-async def analyze_conversation_topics():
+async def analyze_conversation_topics(force: bool = False):
     """
     ADMIN ENDPOINT: Analyze all conversations using Gemini AI and update topics
     Uses Google Gemini 2.0 Flash to intelligently categorize conversations
+
+    Parameters:
+        force: If True, re-analyze all conversations. If False (default), only analyze
+               conversations with "General Inquiry" topic to avoid redundant API calls.
     """
     try:
-        logger.info("🤖 Starting AI topic analysis for all conversations")
+        logger.info(f"🤖 Starting AI topic analysis (force={force})")
 
         # Get topic analyzer
         analyzer = get_topic_analyzer()
@@ -1840,43 +1844,56 @@ async def analyze_conversation_topics():
 
         analyzed = 0
         updated = 0
+        skipped = 0
         failed = 0
 
         for conversation in conversations:
             try:
+                current_topic = conversation.get("topic", "General Inquiry")
+
+                # OPTIMIZATION: Skip conversations that already have a topic (unless force=True)
+                if not force and current_topic != "General Inquiry":
+                    logger.debug(f"Skipping {conversation.get('id')} - already has topic: {current_topic}")
+                    skipped += 1
+                    continue
+
                 transcript = conversation.get("transcript_json", [])
                 if not transcript or len(transcript) < 2:
                     logger.debug(f"Skipping {conversation.get('id')} - insufficient transcript")
+                    skipped += 1
                     continue
 
                 # Analyze topic with Gemini AI
+                logger.info(f"🔍 Analyzing {conversation.get('id')} with Gemini AI...")
                 new_topic = analyzer.analyze_conversation(transcript)
 
                 # Update if topic changed
-                old_topic = conversation.get("topic", "General Inquiry")
-                if new_topic != old_topic:
+                if new_topic != current_topic:
                     conversation["topic"] = new_topic
                     updated += 1
-                    logger.info(f"Updated {conversation.get('id')}: '{old_topic}' → '{new_topic}'")
+                    logger.info(f"✅ Updated {conversation.get('id')}: '{current_topic}' → '{new_topic}'")
+                else:
+                    logger.debug(f"No change for {conversation.get('id')}: {current_topic}")
 
                 analyzed += 1
 
             except Exception as e:
-                logger.error(f"Failed to analyze {conversation.get('id')}: {str(e)}")
+                logger.error(f"❌ Failed to analyze {conversation.get('id')}: {str(e)}")
                 failed += 1
                 continue
 
         # Save updated conversations
         if updated > 0:
             save_interactions(conversations)
-            logger.info(f"✅ Saved {updated} updated topics to database")
+            logger.info(f"💾 Saved {updated} updated topics to database")
 
         return {
             "status": "success",
             "analyzed": analyzed,
             "updated": updated,
+            "skipped": skipped,
             "failed": failed,
-            "message": f"Analyzed {analyzed} conversations, updated {updated} topics"
+            "message": f"Analyzed {analyzed} conversations, updated {updated} topics, skipped {skipped} (already categorized)"
         }
 
     except HTTPException:
