@@ -364,7 +364,10 @@ def save_escalations(escalations):
         logger.error(f"Failed to save escalations: {e}")
 
 def has_escalation_tool_call(conversation: Dict[str, Any]) -> bool:
-    """Check if conversation has escalate_to_human tool call"""
+    """Check if conversation has escalate_to_human tool call
+    Checks multiple locations: transcript_json, analysis section, and root level
+    """
+    # Check transcript_json (most common location)
     transcript = conversation.get("transcript_json", [])
     
     for entry in transcript:
@@ -374,19 +377,62 @@ def has_escalation_tool_call(conversation: Dict[str, Any]) -> bool:
                 if isinstance(tool, dict):
                     tool_name = tool.get("tool_name") or tool.get("name", "")
                     if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate_to_human in transcript_json: {tool_name}")
                         return True
                 elif isinstance(tool, str):
                     if "escalate_to_human" in tool.lower() or "escalate" in tool.lower():
+                        logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate_to_human in transcript_json (string): {tool}")
                         return True
+    
+    # 🔵 CRITICAL FIX: Check analysis section (where ElevenLabs stores tool call metadata)
+    analysis = conversation.get("analysis", {}) or conversation.get("analysis_json", {})
+    if analysis:
+        # Check for tool calls in analysis
+        analysis_tool_calls = analysis.get("tool_calls", []) or analysis.get("tool_invocations", []) or analysis.get("function_calls", [])
+        if analysis_tool_calls:
+            for tool in analysis_tool_calls:
+                if isinstance(tool, dict):
+                    tool_name = tool.get("tool_name") or tool.get("name", "") or tool.get("function_name", "")
+                    if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate_to_human in analysis section: {tool_name}")
+                        return True
+                elif isinstance(tool, str):
+                    if "escalate_to_human" in tool.lower() or "escalate" in tool.lower():
+                        logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate_to_human in analysis (string): {tool}")
+                        return True
+        
+        # Check analysis metadata
+        analysis_metadata = analysis.get("metadata", {}) or {}
+        if isinstance(analysis_metadata, dict):
+            for key in analysis_metadata.keys():
+                if "tool" in key.lower() and "escalate" in str(analysis_metadata.get(key, "")).lower():
+                    logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate in analysis.metadata.{key}")
+                    return True
+    
+    # Check root level (some ElevenLabs formats put tool calls here)
+    root_tool_calls = conversation.get("tool_calls", []) or conversation.get("tool_invocations", [])
+    if root_tool_calls:
+        for tool in root_tool_calls:
+            if isinstance(tool, dict):
+                tool_name = tool.get("tool_name") or tool.get("name", "")
+                if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                    logger.info(f"[HAS_TOOL_CALL] ✅ Found escalate_to_human at root level: {tool_name}")
+                    return True
+    
+    logger.debug(f"[HAS_TOOL_CALL] ⚠️ No escalate_to_human tool call found in conversation {conversation.get('id')}")
     return False
 
 def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Extract escalation data from escalate_to_human tool call parameters"""
+    """Extract escalation data from escalate_to_human tool call parameters
+    Checks transcript_json, analysis section, and root level
+    """
     transcript = conversation.get("transcript_json", [])
+    analysis = conversation.get("analysis", {}) or conversation.get("analysis_json", {})
     conv_id = conversation.get("id")
 
-    logger.debug(f"[EXTRACT] Processing conversation {conv_id}")
+    logger.info(f"[EXTRACT] Processing conversation {conv_id} - checking transcript_json, analysis, and root level")
 
+    # First, check transcript_json
     for entry in transcript:
         tool_calls = entry.get("tool_calls", [])
         if tool_calls:
@@ -491,6 +537,67 @@ def extract_escalation_from_tool_call(conversation: Dict[str, Any]) -> Optional[
                         except:
                             pass
     
+    # 🔵 CRITICAL FIX: Check analysis section for tool calls
+    if analysis:
+        analysis_tool_calls = analysis.get("tool_calls", []) or analysis.get("tool_invocations", []) or analysis.get("function_calls", [])
+        if analysis_tool_calls:
+            logger.info(f"[EXTRACT] Checking {len(analysis_tool_calls)} tool calls in analysis section")
+            for tool in analysis_tool_calls:
+                if isinstance(tool, dict):
+                    tool_name = tool.get("tool_name") or tool.get("name", "") or tool.get("function_name", "")
+                    if "escalate_to_human" in tool_name.lower() or "escalate" in tool_name.lower():
+                        logger.info(f"[EXTRACT] ✅ Found escalate_to_human in analysis section: {tool_name}")
+                        
+                        # Extract params from analysis tool call
+                        params = tool.get("params_as_json") or tool.get("params") or tool.get("arguments", {})
+                        if isinstance(params, str):
+                            try:
+                                params = json.loads(params)
+                            except:
+                                params = {}
+                        
+                        if isinstance(params, dict):
+                            escalation_data = {
+                                "student_name": (
+                                    params.get("student_name") or
+                                    params.get("studentName") or
+                                    conversation.get("user_name") or
+                                    conversation.get("extracted_data_json", {}).get("user_name")
+                                ),
+                                "student_email": (
+                                    params.get("student_email") or
+                                    params.get("studentEmail") or
+                                    conversation.get("user_email") or
+                                    conversation.get("extracted_data_json", {}).get("user_email")
+                                ),
+                                "student_phone": (
+                                    params.get("student_phone") or
+                                    params.get("studentPhone") or
+                                    None
+                                ),
+                                "inquiry_topic": (
+                                    params.get("inquiry_topic") or
+                                    params.get("inquiryTopic") or
+                                    conversation.get("topic") or
+                                    conversation.get("extracted_data_json", {}).get("call_topic") or
+                                    "General Inquiry"
+                                ),
+                                "best_time_to_call": (
+                                    params.get("best_time_to_call") or
+                                    params.get("bestTimeToCall") or
+                                    None
+                                ),
+                                "conversation_id": conv_id,
+                                "created_at": conversation.get("started_at") or datetime.now(timezone.utc),
+                                "status": "pending",
+                                "assigned_to": None
+                            }
+                            
+                            if escalation_data["student_name"] or escalation_data["student_email"]:
+                                logger.info(f"[EXTRACT] ✅ Returning escalation data from analysis section")
+                                return escalation_data
+    
+    logger.warning(f"[EXTRACT] ⚠️ No escalation data extracted from conversation {conv_id}")
     return None
 
 async def auto_extract_escalations(conversations_dict: Dict[str, Any], synced: int, updated: int) -> int:
@@ -512,14 +619,20 @@ async def auto_extract_escalations(conversations_dict: Dict[str, Any], synced: i
 
         # Check each conversation for escalation tool calls
         for conv_id, conversation in conversations_dict.items():
-            # Skip if already has escalation (unless it was just updated)
-            if conv_id in existing_conv_ids:
-                logger.debug(f"[AUTO-EXTRACT] Skipping {conv_id} - already has escalation")
-                continue
-
             # Check if conversation has escalate_to_human tool call
             if has_escalation_tool_call(conversation):
                 logger.info(f"[AUTO-EXTRACT] Found escalate_to_human tool call in conversation {conv_id}")
+
+                # Check if we already have an escalation from tool calls for this conversation
+                existing_tool_call_esc = next(
+                    (esc for esc in existing_escalations 
+                     if esc.get("conversation_id") == conv_id and esc.get("source") == "tool_call"),
+                    None
+                )
+                
+                if existing_tool_call_esc:
+                    logger.debug(f"[AUTO-EXTRACT] Skipping {conv_id} - already has tool_call escalation")
+                    continue
 
                 # Extract escalation data
                 escalation_data = extract_escalation_from_tool_call(conversation)
@@ -530,6 +643,7 @@ async def auto_extract_escalations(conversations_dict: Dict[str, Any], synced: i
                     # Generate escalation ID
                     escalation_id = f"ESC_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{len(existing_escalations) + escalations_created + 1}"
                     escalation_data["id"] = escalation_id
+                    escalation_data["source"] = "tool_call"  # Mark as tool_call source
 
                     # Ensure created_at is timezone-aware
                     if isinstance(escalation_data["created_at"], datetime):
@@ -1004,6 +1118,10 @@ async def get_escalations(
     Automatically calculates priority based on age.
     """
     try:
+        # 🔵 CRITICAL FIX: Reload from file to get latest updates
+        global escalations_db
+        escalations_db = load_escalations()
+        
         # Filter by status if provided
         filtered_escalations = escalations_db
         if status:
@@ -1036,15 +1154,17 @@ async def get_escalations(
             if created_at_dt.tzinfo is None:
                 created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
 
-            # Calculate priority based on age
-            age_hours = (now - created_at_dt).total_seconds() / 3600
-
-            if age_hours > 24:
-                priority = "urgent"
-            elif age_hours > 12:
-                priority = "high"
+            # Calculate priority based on age and status
+            if esc.get("status") == "resolved":
+                priority = "done"
             else:
-                priority = "medium"
+                age_hours = (now - created_at_dt).total_seconds() / 3600
+                if age_hours > 24:
+                    priority = "urgent"
+                elif age_hours > 12:
+                    priority = "high"
+                else:
+                    priority = "medium"
 
             summary = EscalationSummary(
                 id=esc["id"],
@@ -1351,7 +1471,7 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
         "sentiment": sentiment,
         "outcome": outcome,  # Use normalized outcome
         "messages_count": messages_count,  # ← NEW for Conversations page
-        "evaluation_result": evaluation_result,  # ← NEW for Conversations page
+        "evaluation_result": evaluation_result,  # ← NEW for Conversations page (call quality: successful/needs_review/failed)
         "last_message_at": last_message_at,  # ← NEW for sorting/filtering
         "user_name": user_name,  # ← NEW for Conversations page
         "user_email": user_email,  # ← NEW for Conversations page
@@ -1367,7 +1487,9 @@ def _normalize_elevenlabs_conversation(conv: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "created_at": datetime.utcnow(),
         "source": "sync",
-        "synced_at": synced_at  # ← NEW for last sync indicator
+        "synced_at": synced_at,  # ← NEW for last sync indicator
+        "analysis": analysis,  # 🔵 CRITICAL: Store analysis section for tool call extraction
+        "analysis_json": analysis  # Alias for compatibility
     }
     # NOTE: EXCLUDED fields per user requirements:
     # - credits (call): NOT synced
@@ -1486,6 +1608,26 @@ async def sync_from_elevenlabs(
                 
                 existing = by_id.get(norm["id"])
                 if existing:
+                    # PRESERVE AI-analyzed topics - don't overwrite with "General Inquiry"
+                    existing_topic = existing.get("topic", "General Inquiry")
+                    new_topic = norm.get("topic", "General Inquiry")
+                    
+                    # If existing topic is AI-analyzed (not "General Inquiry"), preserve it
+                    # Only update if new topic is also not "General Inquiry" (better extracted data)
+                    if existing_topic != "General Inquiry":
+                        if new_topic != "General Inquiry":
+                            # Both are non-default: use the new one (might be better extracted data)
+                            norm["topic"] = new_topic
+                            logger.debug(f"Updated topic: '{existing_topic}' → '{new_topic}' for {norm['id']}")
+                        else:
+                            # Preserve existing AI topic, don't overwrite with "General Inquiry"
+                            norm["topic"] = existing_topic
+                            logger.debug(f"Preserved AI topic '{existing_topic}' for {norm['id']} (sync had 'General Inquiry')")
+                    else:
+                        # Existing is "General Inquiry", use new topic (might be better)
+                        norm["topic"] = new_topic
+                        logger.debug(f"Updated topic: '{existing_topic}' → '{new_topic}' for {norm['id']}")
+                    
                     by_id[norm["id"]] = norm
                     updated += 1
                     logger.debug(f"Updated conversation: {norm['id']}")
