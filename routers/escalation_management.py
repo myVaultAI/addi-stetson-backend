@@ -73,7 +73,8 @@ async def update_escalation_status(
 ):
     """
     Update the status of an escalation.
-    Valid statuses: pending, contacted, resolved
+    Valid statuses: pending, in_progress (aka processing), resolved
+    Legacy: contacted (treated as in_progress)
     """
     # 🔵 PHASE 1.1: Detailed logging for debugging
     logger.info(f"🔵 STATUS UPDATE CALLED - ID: {escalation_id}, Status: {update.status}")
@@ -91,8 +92,8 @@ async def update_escalation_status(
         
         logger.info(f"🔵 Found escalation: {escalation.get('student_name')} (current status: {escalation.get('status')})")
         
-        # Validate status
-        valid_statuses = ["pending", "contacted", "resolved"]
+        # Validate status (allow legacy contacted)
+        valid_statuses = ["pending", "in_progress", "resolved", "contacted"]
         if update.status not in valid_statuses:
             logger.error(f"🔵 Invalid status: {update.status} (must be one of: {valid_statuses})")
             raise HTTPException(
@@ -102,9 +103,10 @@ async def update_escalation_status(
         
         # Update escalation
         old_status = escalation["status"]
-        escalation["status"] = update.status
+        new_status = "in_progress" if update.status == "contacted" else update.status
+        escalation["status"] = new_status
         escalation["updated_at"] = datetime.now(timezone.utc).isoformat()
-        logger.info(f"🔵 Status changed: {old_status} → {update.status}")
+        logger.info(f"🔵 Status changed: {old_status} → {new_status}")
         
         if update.assigned_to:
             escalation["assigned_to"] = update.assigned_to

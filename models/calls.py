@@ -160,7 +160,7 @@ class EscalationSummary(BaseModel):
 
 class EscalationStatusUpdate(BaseModel):
     """Request to update escalation status"""
-    status: str = Field(..., description="New status: pending, contacted, or resolved")
+    status: str = Field(..., description="New status: pending, in_progress (processing), or resolved (legacy: contacted)")
     note: Optional[str] = Field(None, description="Optional note about the status change")
     assigned_to: Optional[str] = Field(None, description="Who is handling this escalation")
 

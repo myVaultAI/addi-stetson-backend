@@ -320,6 +320,18 @@ def save_interactions(interactions):
     """Save interactions to file"""
     ensure_data_dir()
     try:
+        def _json_safe(obj):
+            # Convert nested structures to JSON-safe types (keys must be strings)
+            if isinstance(obj, dict):
+                return {str(k): _json_safe(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_json_safe(v) for v in obj]
+            if isinstance(obj, tuple) or isinstance(obj, set):
+                return [_json_safe(v) for v in obj]
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            return obj
+
         for item in interactions:
             if "transcript_json" in item:
                 normalized = _normalize_transcript(item.get("transcript_json"))
@@ -333,11 +345,13 @@ def save_interactions(interactions):
                 item["agent_turns"] = len(
                     [t for t in normalized if t.get("speaker") == SpeakerType.AGENT.value]
                 )
+        safe_payload = _json_safe(interactions)
         with open(INTERACTIONS_FILE, 'w') as f:
-            json.dump(interactions, f, indent=2, default=str)
+            json.dump(safe_payload, f, indent=2)
         logger.info(f"Saved {len(interactions)} interactions to file")
     except Exception as e:
-        logger.error(f"Failed to save interactions: {e}")
+        logger.error(f"Failed to save interactions: {e}", exc_info=True)
+        raise
 
 def load_escalations():
     """Load escalations from file"""
