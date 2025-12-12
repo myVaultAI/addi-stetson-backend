@@ -1840,7 +1840,11 @@ async def get_conversations(
                 transcript_preview=i.get("transcript_preview"),
                 turn_count=i.get("turn_count") or len(normalized_transcript),
                 user_turns=i.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
-                agent_turns=i.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value])
+                agent_turns=i.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]),
+                # Notes fields
+                notes=i.get("notes"),
+                notes_author=i.get("notes_author"),
+                notes_updated_at=i.get("notes_updated_at")
             )
             conversations.append(conv)
         
@@ -1909,7 +1913,11 @@ async def get_conversation_detail(conversation_id: str):
             transcript_preview=match.get("transcript_preview"),
             turn_count=match.get("turn_count") or len(normalized_transcript),
             user_turns=match.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
-            agent_turns=match.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value])
+            agent_turns=match.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]),
+            # Notes fields
+            notes=match.get("notes"),
+            notes_author=match.get("notes_author"),
+            notes_updated_at=match.get("notes_updated_at")
         )
 
         return conversation
@@ -1919,6 +1927,63 @@ async def get_conversation_detail(conversation_id: str):
     except Exception as e:
         logger.error(f"Failed to get conversation detail: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to load conversation detail")
+
+
+@router.post("/dashboard/conversations/{conversation_id}/notes")
+async def save_conversation_notes(
+    conversation_id: str,
+    note_data: dict
+):
+    """
+    Save notes for a conversation.
+    
+    Request Body:
+    {
+        "notes": "User's note text here",
+        "author": "Dashboard User" (optional, default)
+    }
+    
+    Response:
+    {
+        "success": true,
+        "conversation_id": "...",
+        "notes": "saved note text",
+        "updated_at": "2025-12-02T..."
+    }
+    """
+    try:
+        interactions = load_interactions()
+        
+        # Find conversation
+        conversation = next(
+            (i for i in interactions if i.get("id") == conversation_id),
+            None
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+        
+        # Update notes
+        conversation["notes"] = note_data.get("notes", "").strip()
+        conversation["notes_author"] = note_data.get("author", "Dashboard User")
+        conversation["notes_updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        # Save
+        save_interactions(interactions)
+        
+        logger.info(f"✅ Saved notes for conversation {conversation_id}")
+        
+        return {
+            "success": True,
+            "conversation_id": conversation_id,
+            "notes": conversation["notes"],
+            "updated_at": conversation["notes_updated_at"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save conversation notes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save notes: {str(e)}")
 
 
 @router.post("/dashboard/admin/clear-database")

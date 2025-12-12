@@ -47,12 +47,22 @@ def save_escalations(escalations: List[dict]) -> None:
         # Ensure data directory exists
         os.makedirs(DATA_DIR, exist_ok=True)
         
+        logger.info(f"💾 Saving {len(escalations)} escalations to {ESCALATIONS_FILE}")
+        
         with open(ESCALATIONS_FILE, 'w') as f:
             json.dump(escalations, f, indent=2, default=str)
         
-        logger.info(f"Saved {len(escalations)} escalations")
+        logger.info(f"✅ Successfully saved escalations")
+        
+        # Verify file was written
+        if os.path.exists(ESCALATIONS_FILE):
+            file_size = os.path.getsize(ESCALATIONS_FILE)
+            logger.info(f"✅ File exists, size: {file_size} bytes")
+        else:
+            logger.error(f"❌ File was NOT created at {ESCALATIONS_FILE}")
+            
     except Exception as e:
-        logger.error(f"Failed to save escalations: {str(e)}")
+        logger.error(f"❌ Failed to save escalations: {str(e)}", exc_info=True)
         raise
 
 
@@ -65,17 +75,26 @@ async def update_escalation_status(
     Update the status of an escalation.
     Valid statuses: pending, contacted, resolved
     """
+    # 🔵 PHASE 1.1: Detailed logging for debugging
+    logger.info(f"🔵 STATUS UPDATE CALLED - ID: {escalation_id}, Status: {update.status}")
+    logger.info(f"🔵 Request body: {update.dict()}")
+    
     try:
         escalations = load_escalations()
+        logger.info(f"🔵 Loaded {len(escalations)} escalations from file")
         
         # Find the escalation
         escalation = next((esc for esc in escalations if esc["id"] == escalation_id), None)
         if not escalation:
+            logger.error(f"🔵 Escalation {escalation_id} NOT FOUND in {len(escalations)} escalations")
             raise HTTPException(status_code=404, detail=f"Escalation {escalation_id} not found")
+        
+        logger.info(f"🔵 Found escalation: {escalation.get('student_name')} (current status: {escalation.get('status')})")
         
         # Validate status
         valid_statuses = ["pending", "contacted", "resolved"]
         if update.status not in valid_statuses:
+            logger.error(f"🔵 Invalid status: {update.status} (must be one of: {valid_statuses})")
             raise HTTPException(
                 status_code=400, 
                 detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
@@ -85,9 +104,11 @@ async def update_escalation_status(
         old_status = escalation["status"]
         escalation["status"] = update.status
         escalation["updated_at"] = datetime.now(timezone.utc).isoformat()
+        logger.info(f"🔵 Status changed: {old_status} → {update.status}")
         
         if update.assigned_to:
             escalation["assigned_to"] = update.assigned_to
+            logger.info(f"🔵 Assigned to: {update.assigned_to}")
         
         # Add note if provided
         if update.note:
@@ -102,11 +123,21 @@ async def update_escalation_status(
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             escalation["notes"].append(note)
+            logger.info(f"🔵 Added note: {note['id']}")
         
         # Save changes
+        logger.info(f"🔵 Saving {len(escalations)} escalations to file...")
         save_escalations(escalations)
+        logger.info(f"🔵 ✅ Successfully saved escalations")
         
-        logger.info(f"Updated escalation {escalation_id} status from {old_status} to {update.status}")
+        # Verify file was written
+        if os.path.exists(ESCALATIONS_FILE):
+            file_size = os.path.getsize(ESCALATIONS_FILE)
+            logger.info(f"🔵 ✅ File exists, size: {file_size} bytes")
+        else:
+            logger.error(f"🔵 ❌ File was NOT created at {ESCALATIONS_FILE}")
+        
+        logger.info(f"✅ Updated escalation {escalation_id} status from {old_status} to {update.status}")
         
         return {
             "success": True,
@@ -119,7 +150,7 @@ async def update_escalation_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update escalation status: {str(e)}")
+        logger.error(f"❌ Failed to update escalation status: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update escalation: {str(e)}")
 
 
@@ -129,13 +160,21 @@ async def add_escalation_note(
     note_data: EscalationNoteCreate
 ):
     """Add a note/comment to an escalation"""
+    # 🔵 PHASE 1.1: Detailed logging for debugging
+    logger.info(f"🔵 ADD NOTE CALLED - Escalation ID: {escalation_id}")
+    logger.info(f"🔵 Note data: author={note_data.author}, text_length={len(note_data.text)}")
+    
     try:
         escalations = load_escalations()
+        logger.info(f"🔵 Loaded {len(escalations)} escalations from file")
         
         # Find the escalation
         escalation = next((esc for esc in escalations if esc["id"] == escalation_id), None)
         if not escalation:
+            logger.error(f"🔵 Escalation {escalation_id} NOT FOUND")
             raise HTTPException(status_code=404, detail=f"Escalation {escalation_id} not found")
+        
+        logger.info(f"🔵 Found escalation: {escalation.get('student_name')}")
         
         # Create note
         note = {
@@ -152,11 +191,14 @@ async def add_escalation_note(
         
         escalation["notes"].append(note)
         escalation["updated_at"] = datetime.now(timezone.utc).isoformat()
+        logger.info(f"🔵 Added note {note['id']} to escalation (total notes: {len(escalation['notes'])})")
         
         # Save changes
+        logger.info(f"🔵 Saving escalations to file...")
         save_escalations(escalations)
+        logger.info(f"🔵 ✅ Successfully saved escalations")
         
-        logger.info(f"Added note to escalation {escalation_id}")
+        logger.info(f"✅ Added note to escalation {escalation_id}")
         
         return {
             "success": True,
@@ -167,7 +209,7 @@ async def add_escalation_note(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to add note: {str(e)}")
+        logger.error(f"❌ Failed to add note: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to add note: {str(e)}")
 
 

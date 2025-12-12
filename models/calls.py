@@ -77,6 +77,10 @@ class InteractionSummary(BaseModel):
     turn_count: Optional[int] = None
     user_turns: Optional[int] = None
     agent_turns: Optional[int] = None
+    # Notes fields
+    notes: Optional[str] = None
+    notes_author: Optional[str] = None
+    notes_updated_at: Optional[str] = None
     started_at: Optional[datetime] = None  # Alias for timestamp
 
 class InteractionDetail(BaseModel):
