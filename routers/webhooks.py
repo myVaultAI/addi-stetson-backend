@@ -1629,6 +1629,18 @@ async def sync_from_elevenlabs(
                         norm["topic"] = new_topic
                         logger.debug(f"Updated topic: '{existing_topic}' → '{new_topic}' for {norm['id']}")
                     
+                    # PRESERVE user-generated notes - don't overwrite with None/empty
+                    existing_notes = existing.get("notes")
+                    existing_notes_author = existing.get("notes_author")
+                    existing_notes_updated_at = existing.get("notes_updated_at")
+                    
+                    if existing_notes:
+                        # Preserve existing notes (user-generated content)
+                        norm["notes"] = existing_notes
+                        norm["notes_author"] = existing_notes_author
+                        norm["notes_updated_at"] = existing_notes_updated_at
+                        logger.debug(f"Preserved notes for conversation {norm['id']}")
+                    
                     by_id[norm["id"]] = norm
                     updated += 1
                     logger.debug(f"Updated conversation: {norm['id']}")
