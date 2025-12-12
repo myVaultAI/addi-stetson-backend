@@ -167,6 +167,11 @@ class EscalationNoteCreate(BaseModel):
     text: str = Field(..., min_length=1, description="Note text")
     author: str = Field(default="Dashboard User", description="Note author")
 
+class ConversationNoteCreate(BaseModel):
+    """Request to save notes for a conversation"""
+    notes: str = Field(..., description="Note text (can be empty to clear notes)")
+    author: str = Field(default="Dashboard User", description="Note author")
+
 class ConversationListItem(BaseModel):
     """Conversation item for Conversations page list/table views"""
     id: str = Field(..., description="Unique conversation identifier")

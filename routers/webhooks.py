@@ -28,6 +28,7 @@ from models.calls import (
     EscalationNoteCreate,
     EscalationNote,
     ConversationListItem,
+    ConversationNoteCreate,
     ConversationsResponse,
     SpeakerType,
     TranscriptEntry,
@@ -1932,7 +1933,7 @@ async def get_conversation_detail(conversation_id: str):
 @router.post("/dashboard/conversations/{conversation_id}/notes")
 async def save_conversation_notes(
     conversation_id: str,
-    note_data: dict
+    note_data: ConversationNoteCreate
 ):
     """
     Save notes for a conversation.
@@ -1963,8 +1964,8 @@ async def save_conversation_notes(
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
         
         # Update notes
-        conversation["notes"] = note_data.get("notes", "").strip()
-        conversation["notes_author"] = note_data.get("author", "Dashboard User")
+        conversation["notes"] = note_data.notes.strip()
+        conversation["notes_author"] = note_data.author
         conversation["notes_updated_at"] = datetime.now(timezone.utc).isoformat()
         
         # Save
