@@ -253,6 +253,21 @@ def ensure_data_dir():
         os.makedirs(DATA_DIR)
         logger.info(f"Created data directory: {DATA_DIR}")
 
+def _get_escalation_status_for_conversation(conversation_id: str) -> Optional[str]:
+    """Get escalation status for a conversation by checking escalations.json"""
+    try:
+        escalations = load_escalations()
+        escalation = next(
+            (e for e in escalations if e.get("conversation_id") == conversation_id),
+            None
+        )
+        if escalation:
+            return escalation.get("status", "pending")
+        return None  # No escalation for this conversation
+    except Exception as e:
+        logger.warning(f"Failed to get escalation status for {conversation_id}: {e}")
+        return None
+
 def load_interactions():
     """Load interactions from file"""
     ensure_data_dir()
@@ -1857,7 +1872,9 @@ async def get_conversations(
                 # Notes fields
                 notes=i.get("notes"),
                 notes_author=i.get("notes_author"),
-                notes_updated_at=i.get("notes_updated_at")
+                notes_updated_at=i.get("notes_updated_at"),
+                # Escalation status
+                escalation_status=_get_escalation_status_for_conversation(i["id"])
             )
             conversations.append(conv)
         
@@ -1930,7 +1947,9 @@ async def get_conversation_detail(conversation_id: str):
             # Notes fields
             notes=match.get("notes"),
             notes_author=match.get("notes_author"),
-            notes_updated_at=match.get("notes_updated_at")
+            notes_updated_at=match.get("notes_updated_at"),
+            # Escalation status - check if conversation has an escalation
+            escalation_status=_get_escalation_status_for_conversation(conversation_id)
         )
 
         return conversation
@@ -1975,13 +1994,30 @@ async def save_conversation_notes(
         if not conversation:
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
         
-        # Update notes
+        # Update notes - modify the actual item in the list
         conversation["notes"] = note_data.notes.strip()
         conversation["notes_author"] = note_data.author
         conversation["notes_updated_at"] = datetime.now(timezone.utc).isoformat()
         
+        logger.info(f"💾 Updating notes for {conversation_id}: notes='{conversation['notes'][:50]}...', author='{conversation['notes_author']}'")
+        
+        # Verify the conversation is in the list before saving
+        found_in_list = any(i.get("id") == conversation_id for i in interactions)
+        if not found_in_list:
+            logger.error(f"❌ Conversation {conversation_id} not found in interactions list before save!")
+        else:
+            logger.info(f"✅ Conversation {conversation_id} found in list, saving...")
+        
         # Save
         save_interactions(interactions)
+        
+        # Verify after save
+        verify_interactions = load_interactions()
+        verify_conv = next((i for i in verify_interactions if i.get("id") == conversation_id), None)
+        if verify_conv and verify_conv.get("notes"):
+            logger.info(f"✅ Verified notes saved: '{verify_conv.get('notes')[:50]}...'")
+        else:
+            logger.error(f"❌ Notes NOT found after save for {conversation_id}!")
         
         logger.info(f"✅ Saved notes for conversation {conversation_id}")
         

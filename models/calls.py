@@ -81,6 +81,8 @@ class InteractionSummary(BaseModel):
     notes: Optional[str] = None
     notes_author: Optional[str] = None
     notes_updated_at: Optional[str] = None
+    # Escalation status
+    escalation_status: Optional[str] = Field(None, description="Escalation status: pending, in_progress, resolved, or None")
     started_at: Optional[datetime] = None  # Alias for timestamp
 
 class InteractionDetail(BaseModel):
