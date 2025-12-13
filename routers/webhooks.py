@@ -46,6 +46,7 @@ router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 DATA_DIR = "data"
 INTERACTIONS_FILE = os.path.join(DATA_DIR, "interactions.json")
 ESCALATIONS_FILE = os.path.join(DATA_DIR, "escalations.json")
+CONVERSATION_NOTES_FILE = os.path.join(DATA_DIR, "conversation_notes.json")
 
 # Agent constants
 ADDI_AGENT_ID = "agent_0301k84pwdr2ffprwkqaha0f178g"
@@ -252,6 +253,32 @@ def ensure_data_dir():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
         logger.info(f"Created data directory: {DATA_DIR}")
+
+def load_conversation_notes() -> Dict[str, Dict[str, Any]]:
+    """Load conversation notes map from file.
+    Format: { conversation_id: { notes: str, author: str, updated_at: str } }
+    """
+    ensure_data_dir()
+    if os.path.exists(CONVERSATION_NOTES_FILE):
+        try:
+            with open(CONVERSATION_NOTES_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            logger.error(f"Failed to load conversation notes: {e}", exc_info=True)
+    return {}
+
+def save_conversation_notes_map(notes_map: Dict[str, Dict[str, Any]]) -> None:
+    """Save conversation notes map to file. Raises on failure."""
+    ensure_data_dir()
+    try:
+        with open(CONVERSATION_NOTES_FILE, "w") as f:
+            json.dump(notes_map, f, indent=2)
+        logger.info(f"Saved conversation notes map ({len(notes_map)} conversations)")
+    except Exception as e:
+        logger.error(f"Failed to save conversation notes map: {e}", exc_info=True)
+        raise
 
 def _get_escalation_status_for_conversation(conversation_id: str) -> Optional[str]:
     """Get escalation status for a conversation by checking escalations.json"""
@@ -1732,6 +1759,7 @@ async def get_conversations(
     try:
         # Load fresh data
         interactions = load_interactions()
+        notes_map = load_conversation_notes()
         
         # Filter by agent
         if agent_id:
@@ -1837,6 +1865,8 @@ async def get_conversations(
         # Convert to response format
         conversations = []
         for i in paginated:
+            conv_id = i["id"]
+            saved_note = notes_map.get(conv_id) if isinstance(notes_map, dict) else None
             extracted = i.get("extracted_data_json", {})
             
             # Get topic from extracted data or interaction
@@ -1861,7 +1891,7 @@ async def get_conversations(
             normalized_transcript = _normalize_transcript(raw_transcript) if raw_transcript else []
             
             conv = ConversationListItem(
-                id=i["id"],
+                id=conv_id,
                 agent_id=i.get("agent_id", "unknown"),
                 started_at=i["started_at"],
                 duration=i.get("duration", 0),
@@ -1884,11 +1914,11 @@ async def get_conversations(
                 user_turns=i.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
                 agent_turns=i.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]),
                 # Notes fields
-                notes=i.get("notes"),
-                notes_author=i.get("notes_author"),
-                notes_updated_at=i.get("notes_updated_at"),
+                notes=(saved_note.get("notes") if saved_note else i.get("notes")),
+                notes_author=(saved_note.get("author") if saved_note else i.get("notes_author")),
+                notes_updated_at=(saved_note.get("updated_at") if saved_note else i.get("notes_updated_at")),
                 # Escalation status
-                escalation_status=_get_escalation_status_for_conversation(i["id"])
+                escalation_status=_get_escalation_status_for_conversation(conv_id)
             )
             conversations.append(conv)
         
@@ -1919,6 +1949,9 @@ async def get_conversation_detail(conversation_id: str):
         match = next((i for i in interactions if i.get("id") == conversation_id), None)
         if not match:
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+
+        notes_map = load_conversation_notes()
+        saved_note = notes_map.get(conversation_id) if isinstance(notes_map, dict) else None
 
         extracted = match.get("extracted_data_json", {})
         
@@ -1959,9 +1992,9 @@ async def get_conversation_detail(conversation_id: str):
             user_turns=match.get("user_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.USER.value]),
             agent_turns=match.get("agent_turns") or len([t for t in normalized_transcript if t.get("speaker") == SpeakerType.AGENT.value]),
             # Notes fields
-            notes=match.get("notes"),
-            notes_author=match.get("notes_author"),
-            notes_updated_at=match.get("notes_updated_at"),
+            notes=(saved_note.get("notes") if saved_note else match.get("notes")),
+            notes_author=(saved_note.get("author") if saved_note else match.get("notes_author")),
+            notes_updated_at=(saved_note.get("updated_at") if saved_note else match.get("notes_updated_at")),
             # Escalation status - check if conversation has an escalation
             escalation_status=_get_escalation_status_for_conversation(conversation_id)
         )
@@ -1998,48 +2031,37 @@ async def save_conversation_notes(
     }
     """
     try:
+        # Confirm conversation exists (read-only check)
         interactions = load_interactions()
-        
-        # Find conversation
-        conversation = next(
-            (i for i in interactions if i.get("id") == conversation_id),
-            None
-        )
-        if not conversation:
+        exists = any(i.get("id") == conversation_id for i in interactions)
+        if not exists:
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
-        
-        # Update notes - modify the actual item in the list
-        conversation["notes"] = note_data.notes.strip()
-        conversation["notes_author"] = note_data.author
-        conversation["notes_updated_at"] = datetime.now(timezone.utc).isoformat()
-        
-        logger.info(f"💾 Updating notes for {conversation_id}: notes='{conversation['notes'][:50]}...', author='{conversation['notes_author']}'")
-        
-        # Verify the conversation is in the list before saving
-        found_in_list = any(i.get("id") == conversation_id for i in interactions)
-        if not found_in_list:
-            logger.error(f"❌ Conversation {conversation_id} not found in interactions list before save!")
-        else:
-            logger.info(f"✅ Conversation {conversation_id} found in list, saving...")
-        
-        # Save
-        save_interactions(interactions)
-        
-        # Verify after save
-        verify_interactions = load_interactions()
-        verify_conv = next((i for i in verify_interactions if i.get("id") == conversation_id), None)
-        if verify_conv and verify_conv.get("notes"):
-            logger.info(f"✅ Verified notes saved: '{verify_conv.get('notes')[:50]}...'")
-        else:
-            logger.error(f"❌ Notes NOT found after save for {conversation_id}!")
-        
-        logger.info(f"✅ Saved notes for conversation {conversation_id}")
-        
+
+        notes_text = note_data.notes.strip()
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        # Persist notes to a dedicated small file (avoid rewriting huge interactions.json)
+        notes_map = load_conversation_notes()
+        notes_map[conversation_id] = {
+            "notes": notes_text,
+            "author": note_data.author,
+            "updated_at": updated_at,
+        }
+        save_conversation_notes_map(notes_map)
+
+        # Verify immediately
+        verify_map = load_conversation_notes()
+        verify = verify_map.get(conversation_id) if isinstance(verify_map, dict) else None
+        if not verify or (verify.get("notes") or "").strip() != notes_text:
+            logger.error(f"❌ Notes NOT found after save for {conversation_id} (notes map)")
+            raise HTTPException(status_code=500, detail="Failed to persist notes")
+
+        logger.info(f"✅ Saved notes for conversation {conversation_id} (notes map)")
         return {
             "success": True,
             "conversation_id": conversation_id,
-            "notes": conversation["notes"],
-            "updated_at": conversation["notes_updated_at"]
+            "notes": notes_text,
+            "updated_at": updated_at,
         }
         
     except HTTPException:
