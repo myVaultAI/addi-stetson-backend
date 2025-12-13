@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
+# Non-secret build tag for debugging deployments
+BUILD_TAG = "notes_map_v1_50ddd21"
+
 # File-based persistence for demo data
 DATA_DIR = "data"
 INTERACTIONS_FILE = os.path.join(DATA_DIR, "interactions.json")
@@ -2106,6 +2109,38 @@ async def clear_database_and_resync(days: int = 365, agent_id: str = ADDI_AGENT_
     except Exception as e:
         logger.error(f"Failed to clear database: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to clear database: {str(e)}")
+
+
+@router.get("/dashboard/admin/build-info")
+async def dashboard_build_info():
+    """
+    DEBUG endpoint: return non-sensitive build/runtime info to verify deployment.
+    """
+    try:
+        def file_info(path: str) -> Dict[str, Any]:
+            try:
+                return {
+                    "path": path,
+                    "exists": os.path.exists(path),
+                    "size_bytes": os.path.getsize(path) if os.path.exists(path) else 0,
+                }
+            except Exception as e:
+                return {"path": path, "exists": False, "error": str(e)}
+
+        return {
+            "build_tag": BUILD_TAG,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "pid": os.getpid(),
+            "data_dir": DATA_DIR,
+            "files": {
+                "interactions": file_info(INTERACTIONS_FILE),
+                "escalations": file_info(ESCALATIONS_FILE),
+                "conversation_notes": file_info(CONVERSATION_NOTES_FILE),
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate build info: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate build info")
 
 
 @router.post("/dashboard/admin/analyze-topics")
