@@ -198,6 +198,12 @@ class ConversationListItem(BaseModel):
     turn_count: Optional[int] = Field(None, description="Total conversation turns")
     user_turns: Optional[int] = Field(None, description="User/student turns")
     agent_turns: Optional[int] = Field(None, description="Agent turns")
+    # Notes fields (persisted in conversation_notes.json)
+    notes: Optional[str] = Field(None, description="User-added notes for the conversation")
+    notes_author: Optional[str] = Field(None, description="Author of the notes")
+    notes_updated_at: Optional[str] = Field(None, description="Timestamp of the last note update")
+    # Escalation status (looked up from escalations.json)
+    escalation_status: Optional[str] = Field(None, description="Escalation status: pending, in_progress, resolved, or None")
 
     class Config:
         json_encoders = {

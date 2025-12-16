@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 # Non-secret build tag for debugging deployments
-BUILD_TAG = "notes_debug_v2_dec16"
+BUILD_TAG = "notes_model_fix_v3_dec16"
 
 # File-based persistence for demo data
 DATA_DIR = "data"
