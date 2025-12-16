@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 # Non-secret build tag for debugging deployments
-BUILD_TAG = "notes_map_v1_50ddd21"
+BUILD_TAG = "notes_debug_v2_dec16"
 
 # File-based persistence for demo data
 DATA_DIR = "data"
@@ -2141,6 +2141,56 @@ async def dashboard_build_info():
     except Exception as e:
         logger.error(f"Failed to generate build info: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate build info")
+
+
+@router.get("/dashboard/admin/debug-notes")
+async def debug_notes_file():
+    """
+    DEBUG endpoint: Read raw notes file content to diagnose persistence issues.
+    """
+    try:
+        pid = os.getpid()
+        result = {
+            "pid": pid,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "notes_file_path": CONVERSATION_NOTES_FILE,
+            "notes_file_exists": os.path.exists(CONVERSATION_NOTES_FILE),
+        }
+        
+        if os.path.exists(CONVERSATION_NOTES_FILE):
+            result["notes_file_size"] = os.path.getsize(CONVERSATION_NOTES_FILE)
+            try:
+                with open(CONVERSATION_NOTES_FILE, "r") as f:
+                    raw_content = f.read()
+                result["raw_content_len"] = len(raw_content)
+                result["raw_content"] = raw_content[:2000]  # First 2KB
+                
+                # Also try to parse it
+                try:
+                    parsed = json.loads(raw_content)
+                    result["parsed_keys"] = list(parsed.keys()) if isinstance(parsed, dict) else "not_a_dict"
+                    result["parsed_ok"] = True
+                except json.JSONDecodeError as je:
+                    result["parsed_ok"] = False
+                    result["parse_error"] = str(je)
+            except Exception as re:
+                result["read_error"] = str(re)
+        else:
+            result["notes_file_size"] = 0
+            result["raw_content"] = None
+        
+        # Also load via our helper function to see if that works
+        try:
+            notes_map = load_conversation_notes()
+            result["helper_load_keys"] = list(notes_map.keys()) if isinstance(notes_map, dict) else "not_a_dict"
+            result["helper_load_count"] = len(notes_map) if isinstance(notes_map, dict) else 0
+        except Exception as he:
+            result["helper_load_error"] = str(he)
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to debug notes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to debug notes: {str(e)}")
 
 
 @router.post("/dashboard/admin/analyze-topics")
